@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex SSH Remote Setup"
+  short_description: "Set up and repair Codex over SSH"
+  default_prompt: "Use $codex-ssh-remote-skill to set up or repair a stable Codex Desktop SSH connection."
