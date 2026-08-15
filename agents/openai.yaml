@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex SSH Remote Setup"
+  short_description: "Set up, diagnose, and migrate Codex SSH projects"
+  default_prompt: "Use $codex-ssh-remote-skill to set up, diagnose, or repair a stable Codex Desktop SSH remote project and handle chat portability safely."
