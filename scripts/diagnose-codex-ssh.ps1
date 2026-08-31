@@ -76,7 +76,7 @@ $sshArgs = @(
     '-o', 'BatchMode=yes',
     '-o', "ConnectTimeout=$ConnectTimeoutSeconds",
     $HostAlias,
-    'echo SSH_READY; whoami; command -v codex; codex --version; codex app-server --help >/dev/null && echo APP_SERVER_READY'
+    'echo SSH_READY; whoami; command -v codex; codex --version; codex app-server --help >/dev/null && echo APP_SERVER_READY; codex app-server daemon version 2>&1 || true'
 )
 
 $remoteOutput = & ssh @sshArgs 2>&1

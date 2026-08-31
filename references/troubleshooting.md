@@ -6,8 +6,9 @@
 2. Error map
 3. Connection flapping
 4. SSH config integrity
-5. Codex-specific checks
-6. Evidence bundle
+5. Managed App Server lifecycle
+6. Codex-specific checks
+7. Evidence bundle
 
 ## Diagnostic order
 
@@ -20,9 +21,10 @@ Diagnose in this order and stop at the first failing layer:
 5. Public-key authentication
 6. Remote login shell and PATH
 7. Remote Codex version/config
-8. Codex Desktop connection and project
-9. Chat index and Codex home
-10. OpenAI outbound network/auth
+8. Managed app-server daemon/control socket, when used
+9. Codex Desktop connection and project
+10. Chat state/index and Codex home
+11. OpenAI outbound network/auth
 
 Changing a later layer cannot repair an earlier one.
 
@@ -45,12 +47,17 @@ Changing a later layer cannot repair an earlier one.
 | `unknown variant priority, expected fast or flex` | An older remote Codex CLI is reading a newer config value | Compare client and remote `codex --version`; inspect only the indicated config key | Upgrade remote Codex or isolate a compatible remote config; do not alter sessions |
 | `codex: command not found` only through SSH | Non-interactive login PATH differs from interactive PATH | `ssh alias 'printf "%s\n" "$PATH"; command -v codex'` | Export the install directory from the correct shell startup path or use a stable executable path |
 | Codex says the SSH CLI version must be updated | Remote app-server version is behind the Desktop expectation | `ssh alias 'codex --version'` | Update Codex on A, then rerun CLI gates before restarting Desktop |
-| `No chats` while files are visible | SSH works, but the remote Codex home/index has no matching tasks | Inspect remote `CODEX_HOME`, `~/.codex/sessions`, and task working directories | Create new remote chats or intentionally reconcile stores; adding folders alone does not migrate chats |
+| `Couldn't enable remote control. Try again` | Built-in Remote Control could not update or reach its managed app-server state; this is separate from SSH reachability | Run `codex app-server daemon version` as the same account and inspect the control socket owner | Repair version/daemon state or use the independently verified SSH Connection path; do not repeatedly toggle the UI |
+| `failed to connect to ... app-server-control.sock` | No managed daemon is listening, the socket is stale/inaccessible, or the command runs as the wrong account | `codex app-server daemon version`; `ss -xlpn`; `whoami` | Use the correct account and resolve daemon/socket state; do not delete the socket while a live owner exists |
+| Daemon restart times out or claims success but the old version remains | Tracked daemon state and the process actually holding the socket may differ | Compare `daemon version`, socket-owner PID, process start time, and executable version | Wait for active work to stop, then perform one controlled restart and verify by readback; never kill a guessed PID |
+| `No chats` while files are visible | SSH works, but the remote Codex home/state index has no matching tasks | Inspect remote `CODEX_HOME`, rollout files, `state_*.sqlite`/current index, and task working directories | Create new remote chats or intentionally reconcile stores; adding folders alone does not migrate chats |
 | Chat appears, disappears, or resolves to the wrong host after manual copy | The same internal task ID exists on multiple hosts | List host IDs and inspect both session stores | Fork the imported A task to a new ID, verify it, archive both old-ID copies |
 | `Only project-scoped Git repository chats can be handed off` | Official Hand off cannot move a projectless task | Check the saved project and `projectId` | Use a matching saved Git project for future tasks or follow the last-resort migration protocol |
 | `stream disconnected ... backend-api/codex/responses` | The app-server host lost outbound OpenAI access or auth | Test from A; inspect VPN and auth logs | Restore A's VPN/network/auth; B's separate VPN is not a substitute for A's outbound path |
 | Remote chat works in terminal but not Desktop | `codex resume` proved CLI access, not Desktop app-server compatibility | Run app-server acceptance gate and enable Connections > SSH | Configure Desktop SSH after app-server checks pass |
 | Remote task runs in `/` or wrong path after import | Imported session contains a stale source cwd | Read task metadata and run `pwd -P` | Prefer a compatibility path/symlink or new fork; avoid bulk rewriting history |
+| `Invalid request: AbsolutePathBuf deserialized without a base path` | A typed structural path is invalid for the target OS, commonly after Windows-to-WSL migration | Inspect the exact rollout's structural `cwd`, workspace, and writable-root fields | Follow the short repair protocol in `chat-portability.md`; fix only proven metadata fields while every writer is stopped |
+| Chat appears under **Work** or the wrong project although its DB cwd looks correct | Stale `thread_source`, cwd, or repeated `session_meta` records can disagree with the index | Compare the exact task's DB row with every `session_meta` record in its rollout | Reconcile only the target task using the transactional repair flow; changing the title alone is insufficient |
 
 ## Connection flapping
 
@@ -97,6 +104,20 @@ Back up before editing. Prefer a structured line array or a reviewed script over
 
 If `ProxyJump` must remain, test the target from the jump host itself before debugging the client alias. For a Windows jump host forwarding to WSL, run `ssh -vvv -p <WSL_PORT> 127.0.0.1` on Windows A. If that path works but the jump channel still closes, inspect the jump host's `sshd_config` and every matching `Match` block for `AllowTcpForwarding`, `DisableForwarding`, and `PermitOpen`. Permit only the required destination where possible. Treat `UNKNOWN port 65535` as the failed stdio-forward channel, not as a port to configure.
 
+## Managed App Server lifecycle
+
+When the connection uses a managed daemon, inspect it as the same account that owns the remote Codex home:
+
+```bash
+codex app-server daemon version
+ss -xlpn | grep app-server-control
+ps -eo pid,ppid,lstart,args
+```
+
+A restrictive sandbox can block socket access even when the daemon is healthy, so distinguish `Operation not permitted` from a missing/stopped daemon. Do not infer success from `restart complete`: require `running`, compatible versions, one live socket owner, and a harmless completed request.
+
+If stop/restart times out, do not loop. Confirm whether an active task is writing, compare any tracked PID with the real socket owner, and resolve the exact process before acting. `bootstrap` creates durable management; use it only when the chosen connection mode needs a persistent daemon and the user has authorized that system change.
+
 ## Codex-specific checks
 
 ### Separate Codex homes
@@ -117,11 +138,17 @@ They are separate even though they are on the same physical PC. A remote app-ser
 
 ### Config version skew
 
-Do not share the entire `.codex` directory across Windows and WSL. `config.toml`, auth, app-server control sockets, paths, and versions can be platform-specific. If session discovery must be bridged, limit the bridge to the required data and keep backups. See `chat-portability.md`.
+Do not share the entire `.codex` directory across Windows and WSL. `config.toml`, auth, app-server control sockets, paths, state databases, and versions can be platform-specific. Do not symlink a live SQLite state database. See `chat-portability.md`.
 
 ### Project folder versus task index
 
 A saved project folder tells Codex where to run. Chat history is indexed separately. `No chats` does not mean the folder is inaccessible.
+
+### Session metadata and UI grouping
+
+Storage layout is version-sensitive. Discover the active `sessions/`, `archived_sessions/`, `state_*.sqlite`, `session_index.jsonl`, attachments, and control state instead of assuming one file is authoritative.
+
+For migrated tasks, inspect every repeated `session_meta` record. Fixing only the first occurrence can leave stale `cwd` or `thread_source` values that continue to affect loading or UI grouping. Any mutation must follow the backup/stop/validate sequence in `chat-portability.md`.
 
 ## Evidence bundle
 
@@ -145,10 +172,14 @@ whoami
 hostname
 command -v codex
 codex --version
+codex app-server daemon --help
+codex app-server daemon version
 sshd -T
 ss -lntp
+ss -xlpn
 systemctl status ssh --no-pager
 tailscale status
+find "${CODEX_HOME:-$HOME/.codex}" -maxdepth 2 -type f \( -name 'state_*.sqlite' -o -name 'session_index.jsonl' -o -name 'rollout-*.jsonl' \)
 ```
 
 Redact public IPs when unnecessary, private paths if sensitive, emails, account IDs, tokens, cookies, and all private-key material. Host-key and public-key fingerprints are identifiers, not secrets, but still sanitize them in public reports when they identify a private machine.

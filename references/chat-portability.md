@@ -17,7 +17,7 @@ An SSH project connection is not a screen mirror and does not automatically clon
 Three things are independent:
 
 - the project folder where commands run;
-- the Codex home that stores sessions and indexes;
+- the Codex home that stores rollout JSONL, attachments, and version-dependent indexes or state databases;
 - the host ID that Desktop associates with the task.
 
 Adding more folders only changes available workspaces. It does not move session history.
@@ -32,6 +32,17 @@ For the most reliable single-source workflow:
 4. Do not open a second local copy of the same task on B.
 
 The app-server, session writes, commands, and files then belong to A. B is the UI and SSH client.
+
+Write down the canonical invariant explicitly:
+
+```text
+Canonical host: A
+Canonical Codex home: the home used by A's remote app-server
+Active writers: app-server/clients connected to that home only
+B: UI and SSH client, not a second task store
+```
+
+Verify a task by internal task ID and host. Titles are not unique, and a Desktop refresh delay does not prove that a remote task was copied or lost.
 
 ## Official Hand off
 
@@ -60,24 +71,9 @@ Consequences:
 - A task created through WSL SSH may not appear in Windows Codex on A if the stores are separate.
 - The same project folder can show different chats under different Codex homes.
 
-If one physical A must expose existing Windows tasks through WSL, an advanced bridge can point only WSL `sessions` and `session_index.jsonl` at the Windows equivalents. Do not share the full `.codex` directory.
+Do not solve this by blindly symlinking `sessions` and `session_index.jsonl`. Codex storage is version-dependent; a current installation can use rollout files under `sessions/`, `state_*.sqlite`, `session_index.jsonl`, attachments, archives, and app-server control state together. Linking only an assumed index can produce incomplete discovery, while linking a live SQLite database or the full `.codex` home across Windows and WSL can corrupt state or mix platform-specific config, auth, sockets, and paths.
 
-Example shape:
-
-```bash
-~/.codex/sessions -> /mnt/c/Users/<windows-user>/.codex/sessions
-~/.codex/session_index.jsonl -> /mnt/c/Users/<windows-user>/.codex/session_index.jsonl
-```
-
-Before bridging:
-
-1. Stop task writers or guarantee only one computer will work at a time.
-2. Back up both stores.
-3. Compare Codex versions.
-4. Keep WSL config/auth/control sockets separate.
-5. Validate JSONL files and permissions.
-
-This is version-sensitive and not a substitute for Remote Control.
+Prefer one canonical Codex home on A and one-time import/fork of the specific task. If existing stores must be reconciled, discover the active files first. Keep Windows and WSL config/auth/control sockets separate.
 
 ## Last-resort projectless migration
 
@@ -105,9 +101,13 @@ Never delete the source during this phase.
 
 ### Phase 3: Repair path compatibility
 
-Imported history may carry a Windows cwd that is invalid in WSL. Prefer a narrow compatibility symlink or a new valid fork over rewriting thousands of historical records.
+Imported history may carry Windows paths that are invalid in WSL. Prefer a valid native Hand off, a narrow compatibility path, or a new valid fork over rewriting historical records.
 
 Run a harmless `pwd -P` test. If the task resolves to `/` or another wrong directory, stop before real work.
+
+If native resume itself fails with `Invalid request: AbsolutePathBuf deserialized without a base path`, or metadata contains hybrid values such as `/home/user/C:\Users\...`, inspect all structural path fields; fixing only `workspace_roots` can leave invalid `cwd`, `thread_settings.cwd`, environment cwd, or sandbox writable roots behind.
+
+For a proven metadata repair: stop every writer, back up the exact rollout and active state database, parse every JSONL line, change only typed path fields, preserve line count/order, validate SQLite integrity, then restart App Server and verify `pwd -P`. Never bulk-replace path-looking text inside messages or command output.
 
 ### Phase 4: Eliminate duplicate IDs
 
@@ -144,10 +144,11 @@ A native fork may intentionally normalize timestamps, repeated turn-context reco
 Confirm all of the following:
 
 - Desktop B lists only the final new-ID task as active.
-- Its host ID is A.
+- Its host ID and canonical Codex home are A.
 - `pwd -P` resolves to the intended project on A.
 - A harmless marker response completes.
 - A new follow-up remains visible after reconnecting B.
+- Reopening or refreshing Desktop A/B does not resolve the task to a local B copy.
 - The archived B source still exists as a backup.
 
 ## Verification

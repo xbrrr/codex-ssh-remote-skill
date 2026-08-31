@@ -10,9 +10,9 @@ The skill is based on a real Windows → Tailscale → WSL deployment and captur
 
 - Windows, WSL, Linux, OpenSSH, and Tailscale setup
 - SSH keys, `ssh-agent`, `known_hosts`, and BatchMode authentication
-- Codex app-server startup, remote `PATH`, and version/config mismatches
+- Codex app-server daemon lifecycle, stale socket/PID diagnosis, remote `PATH`, and version/config mismatches
 - `Connection failed`, `Connection reset`, connection flapping, and `ProxyJump` failures
-- `No chats` caused by separate project, session, Windows, and WSL stores
+- `No chats`, `AbsolutePathBuf`, hybrid Windows/WSL paths, and wrong Work/project grouping
 - VPN placement, Git Hand off limits, and safe projectless-task migration
 
 ## Recommended topology
@@ -95,7 +95,8 @@ This avoids repeated app restarts while the underlying SSH transport is still br
 
 - SSH remote projects are not a live mirror of another Codex Desktop instance.
 - A project folder does not contain or automatically import chat history.
-- Windows Codex and WSL Codex may use separate homes and task indexes.
+- Windows Codex and WSL Codex may use separate homes and version-dependent task indexes such as SQLite state plus rollout JSONL.
+- Do not symlink a live SQLite state database or assume `session_index.jsonl` is the only active index.
 - Never expose Codex app-server directly to a LAN or the internet.
 - Never publish private keys, `auth.json`, tokens, cookies, or unsanitized logs.
 - Do not keep the same manually copied task ID active on two hosts.

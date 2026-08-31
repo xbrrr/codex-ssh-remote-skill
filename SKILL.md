@@ -1,6 +1,6 @@
 ---
 name: codex-ssh-remote-skill
-description: Set up and troubleshoot Codex Desktop SSH Remote Connections and projects between computers, especially Windows-to-WSL/Linux/Windows through Tailscale. Use when OpenAI's built-in Remote Connections or Remote Control fails, shows Couldn't enable remote control. Try again, Connection failed, or repeated disconnects, and an SSH alternative is needed. Also use for Codex over SSH, Settings / Connections / SSH, computer A/B, OpenSSH/sshd, keys, ssh-agent, BatchMode, known_hosts, Connection reset/flapping, ProxyJump/UNKNOWN port 65535, remote PATH/codex not found, app-server, config.toml/service_tier mismatch, VPN placement, files visible but No chats, separate Windows/WSL Codex homes/indexes, project folders vs chat storage, Hand off limits, projectless chat migration, duplicate/disappearing task IDs, and JSONL verification. Choose a direct WSL/Linux topology, prove network/auth/shell/app-server gates, explain sync limits, and move tasks safely. Do not use for generic SSH or claim SSH creates a desktop mirror.
+description: Set up, diagnose, and repair Codex Desktop SSH Remote Connections between computers, especially Windows B to WSL/Linux A over Tailscale. Use when built-in Remote Control shows Couldn't enable remote control, SSH Connections fail or flap, app-server daemon state is stale, files open but chats are missing, or migrated Windows-to-WSL chats fail with AbsolutePathBuf, appear under Work or the wrong project, duplicate, or disappear. Covers OpenSSH, keys, ProxyJump, remote PATH/version/VPN, one-source-of-truth chat storage, Hand off limits, and safe session-store diagnosis; do not use for generic SSH or claim SSH creates a desktop mirror.
 ---
 
 # Codex SSH Remote Setup
@@ -14,6 +14,8 @@ Treat these as different products:
 - **Remote Control** controls another running desktop app and can expose that host's existing desktop state.
 - **Connections > SSH** starts a remote Codex app-server through SSH. Files, commands, credentials, skills, and new remote chats come from the SSH host.
 - **`codex resume --all` over a terminal** is a CLI workflow, not a native Desktop mirror.
+
+Depending on the installed Codex version and connection mode, SSH may start an app-server for the connection or proxy to a managed app-server daemon. In both cases, identify the effective Codex home, process, and control socket on A instead of treating the Desktop UI on B as the source of truth.
 
 Prefer this topology for an always-on Windows host that uses WSL:
 
@@ -32,6 +34,7 @@ Before relying on product behavior, consult the current official OpenAI document
 
 - <https://learn.chatgpt.com/docs/remote-connections>
 - <https://learn.chatgpt.com/docs/build-skills>
+- <https://learn.chatgpt.com/docs/app-server>
 
 ## Apply safety rules
 
@@ -43,6 +46,8 @@ Before relying on product behavior, consult the current official OpenAI document
 - Do not change ports repeatedly. First prove which address and port actually have a listener.
 - Do not restart Codex to test a broken transport. Pass the command-line acceptance gates first.
 - Do not manually copy a live task while either host may write to it.
+- Never edit a rollout JSONL or task database while an app-server, Desktop instance, CLI task, or migration process can write to that store.
+- Do not trust a restart command's final message alone. Read back daemon status/version and, when diagnosing stale state, the actual process holding the control socket.
 - Treat manual Codex session-file migration as an unsupported last resort because the storage format can change.
 
 ## Run the workflow
@@ -56,6 +61,7 @@ Resolve or ask for:
 - whether the target shell is Windows, WSL, or Linux;
 - whether Tailscale/mesh runs on Windows A, inside WSL A, or both;
 - where `codex` is installed for the remote login shell;
+- the effective remote `CODEX_HOME`, whether a managed daemon is present, and which process owns its control socket;
 - whether the goal is new remote work, access to existing chats, or a full chat move.
 
 Do not assume a Microsoft email address, Windows display name, PIN, and SSH account name are interchangeable. Ask the remote shell for `whoami` or use the actual WSL account.
@@ -78,9 +84,13 @@ On A, inspect without changing state:
 whoami
 command -v codex
 codex --version
+codex app-server daemon --help
+codex app-server daemon version
 ss -lntp
 sshd -T
 ```
+
+`daemon version` may fail when no managed daemon is configured or when sandbox permissions block the local control socket. Record that result; do not bootstrap or restart the daemon merely to make the probe green.
 
 Also confirm the VPN/mesh address, service state, sleep policy, and outbound access to OpenAI from the host that runs the app-server.
 
@@ -102,14 +112,27 @@ Stop at the first failed gate:
 2. `ssh -G <alias>` resolves to the intended address, port, user, and identity with no accidental proxy.
 3. `ssh -o BatchMode=yes <alias> "echo SSH_READY"` succeeds without a password or key-passphrase prompt.
 4. `ssh <alias> "command -v codex; codex --version"` succeeds in the non-interactive login shell.
-5. The remote Codex version can start `codex app-server`; isolate or upgrade incompatible config before continuing.
+5. The remote Codex version can start `codex app-server`; if the connection uses a managed daemon, `codex app-server daemon version` reports `running` and compatible CLI/app-server versions.
 6. Codex Desktop B enables the SSH host and saves the intended remote project folder.
 7. A new test chat runs `pwd` and a harmless file read on A.
 8. A follow-up still works after several minutes and after reopening the project.
 
 Do not ask the user to keep restarting the desktop app while gates 1-5 fail.
 
-### 5. Add the host to Codex Desktop
+### 5. Verify a managed App Server when present
+
+Do not introduce persistent daemon management unless the selected Codex connection mode needs it. `codex app-server daemon bootstrap` installs durable local management and is a persistent system change; explain why it is needed and obtain authorization before running it.
+
+For an existing daemon, read back its state and actual socket owner:
+
+```bash
+codex app-server daemon version
+ss -xlpn | grep app-server-control
+```
+
+Count a restart as successful only when status is `running`, versions are compatible, the expected socket has one live owner, and a harmless request succeeds. On timeout or PID/socket mismatch, stop; do not kill a guessed PID or restart while a task may be writing. Use `references/troubleshooting.md`.
+
+### 6. Add the host to Codex Desktop
 
 After all CLI gates pass:
 
@@ -120,16 +143,18 @@ After all CLI gates pass:
 
 The selected folder controls the remote workspace; it does not move old local chat history into that folder.
 
-### 6. Decide how chats should behave
+### 7. Decide how chats should behave
 
 - For **new work**, create the chat in the saved remote project. The task, commands, and files belong to A.
 - For an **existing Git-project task**, prefer the official Hand off flow and save the same repository/subdirectory on both hosts.
 - For a **projectless task**, Hand off may reject it. Read `references/chat-portability.md` before considering a manual migration.
 - If Windows Codex on A and WSL Codex on A use different homes, expect `No chats` until the stores are intentionally reconciled. Connecting more project folders does not solve this.
 
+For a one-source-of-truth setup, enforce this invariant: the selected Codex home on A is the only active writer and canonical task store; B is only the Desktop UI and SSH client. Verify important tasks by task ID and host, not title. A refresh delay or stale client index is not proof that a task is missing from A.
+
 Never leave the same manually copied task ID active on B and A. The desktop index can deduplicate identical IDs unpredictably, causing a task to appear and disappear. Fork the imported task on A to a new ID, verify it, then archive the source and temporary import.
 
-### 7. Harden stability
+### 8. Harden stability
 
 Use conservative client keepalives:
 
@@ -160,12 +185,14 @@ Useful rules:
 - `No chats` with working files is a Codex-home or task-index problem, not an SSH transport problem.
 - `stream disconnected ... backend-api/codex/responses` points to outbound network/authentication on the machine running the remote app-server.
 - `unknown variant priority, expected fast or flex` indicates config/CLI version skew; do not edit unrelated session data.
+- `Invalid request: AbsolutePathBuf deserialized without a base path` after Windows-to-WSL migration points to invalid structural path metadata until disproved; inspect every relevant path field, including hybrid values such as `/home/user/C:\Users\...`.
+- A chat under **Work** or the wrong project can retain stale `cwd` or `thread_source` metadata in both the task database and repeated `session_meta` records. Diagnose the exact task before changing either store.
 
 ## Use bundled resources
 
 - Read `references/windows-wsl-setup.md` for the full Windows B to WSL A setup and acceptance checklist.
 - Read `references/troubleshooting.md` for errors, proof commands, causes, and targeted fixes.
-- Read `references/chat-portability.md` for chat visibility, Hand off limits, Codex-home bridging, and last-resort migration.
+- Read `references/chat-portability.md` for chat visibility, Hand off limits, one-source-of-truth design, and last-resort migration.
 - Run `scripts/diagnose-codex-ssh.ps1` on B for read-only SSH and Codex checks.
 - Run `scripts/setup-wsl-sshd.sh --help` before any server-side setup.
 - Run `scripts/verify-session-clone.py` only to compare two already-created JSONL session files; it never modifies them. Use `--allow-clone-tail` only when the destination was legitimately continued after migration.
@@ -178,7 +205,9 @@ Lead with the verified outcome and list:
 - passed and failed acceptance gates;
 - exact files or services changed;
 - backup locations;
+- managed daemon status/version and control-socket owner when relevant;
 - whether chats are new, handed off, or manually migrated;
+- the canonical Codex home and final task/host IDs for any migrated task;
 - which VPN/mesh components must remain active;
 - any remaining unsupported or version-sensitive behavior.
 

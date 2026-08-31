@@ -122,6 +122,14 @@ codex --version
 
 If `codex` lives in `~/.local/bin`, export that path from a shell startup file that is loaded for the SSH command mode used by the app. Prove it from B rather than assuming interactive and non-interactive shells match.
 
+Also record the effective remote Codex home. This is the canonical task store for a one-source-of-truth setup:
+
+```bash
+printf 'CODEX_HOME=%s\n' "${CODEX_HOME:-$HOME/.codex}"
+```
+
+Do not run `codex app-server daemon bootstrap` as a generic setup step. It installs durable daemon management. Use it only when the selected Desktop connection mode requires a managed daemon, explain the persistent change, and obtain authorization first.
+
 ## Configure Windows B
 
 Back up the existing SSH config:
@@ -173,6 +181,12 @@ ssh -o BatchMode=yes computer-a "whoami; command -v codex; codex --version"
 ssh -o BatchMode=yes computer-a "codex app-server --help >/dev/null && echo APP_SERVER_READY"
 ```
 
+If this connection uses the managed daemon, also run:
+
+```powershell
+ssh -o BatchMode=yes computer-a "codex app-server daemon version"
+```
+
 Expected results:
 
 - no password or passphrase prompt;
@@ -180,6 +194,8 @@ Expected results:
 - no unintended `proxyjump` or `proxycommand`;
 - `whoami` is the intended WSL account;
 - both `SSH_READY` and `APP_SERVER_READY` appear.
+
+For a managed daemon, require a `running` status and compatible CLI/app-server versions. If it was restarted, verify the actual control-socket owner and a harmless request; a restart message alone is not sufficient.
 
 If any check fails, use `references/troubleshooting.md`. Do not open/restart Codex yet.
 
@@ -192,6 +208,7 @@ If any check fails, use `references/troubleshooting.md`. Do not open/restart Cod
 5. Start a test chat in that remote project.
 6. Ask it to run `pwd -P`, `hostname`, and a harmless read.
 7. Confirm the returned path and hostname belong to A.
+8. Record the new task's internal ID/host when possible and confirm it belongs to A, not a local B copy.
 
 The project picker browses A through SSH. It does not require mounting A as a Windows drive on B.
 
@@ -228,3 +245,5 @@ Windows account rules differ from WSL:
 - Remote `codex --version` is compatible with the Desktop client.
 - The exact SSH alias still passes the four verification commands.
 - New chats are created in the remote project when A must remain canonical.
+- A's selected remote Codex home is the only active task store; B is only the UI/SSH client.
+- Managed daemon status/version and control-socket ownership are read back after any restart.
