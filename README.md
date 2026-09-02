@@ -1,8 +1,8 @@
 # Codex SSH Remote Setup
 
-A practical Codex skill for building stable SSH remote projects between two computers. Codex Desktop runs on computer B as the UI, while files, commands, tools, and new remote tasks execute and persist on an always-on computer A.
+A practical Codex skill for building stable SSH remote projects between computers. Codex Desktop runs on a client as the UI, while files, commands, tools, and remote tasks execute and persist on one canonical always-on host.
 
-The skill is based on a real Windows → Tailscale → WSL deployment and captures both successful fixes and recurring failure modes.
+The skill is based on real Windows → Tailscale → WSL and macOS-host deployments. It also covers safely replacing the canonical host without losing chat history or leaving two active sources of truth.
 
 > Independent community skill. Manual Codex session migration is an unsupported, version-sensitive fallback.
 
@@ -14,6 +14,7 @@ The skill is based on a real Windows → Tailscale → WSL deployment and captur
 - `Connection failed`, `Connection reset`, connection flapping, and `ProxyJump` failures
 - `No chats`, `AbsolutePathBuf`, hybrid Windows/WSL paths, and wrong Work/project grouping
 - VPN placement, Git Hand off limits, and safe projectless-task migration
+- Full Codex host replacement, canary migration, semantic history checks, attachment transfer, cleanup, and rollback
 
 ## Recommended topology
 
@@ -87,6 +88,7 @@ This avoids repeated app restarts while the underlying SSH transport is still br
 | [references/windows-wsl-setup.md](references/windows-wsl-setup.md) | Complete Windows B → WSL A setup |
 | [references/troubleshooting.md](references/troubleshooting.md) | Error map, proof commands, and targeted fixes |
 | [references/chat-portability.md](references/chat-portability.md) | Chat visibility, Hand off, and fallback migration |
+| [references/host-cutover.md](references/host-cutover.md) | Replace the canonical Codex host and retire the old one safely |
 | [scripts/diagnose-codex-ssh.ps1](scripts/diagnose-codex-ssh.ps1) | Read-only Windows client diagnostics |
 | [scripts/setup-wsl-sshd.sh](scripts/setup-wsl-sshd.sh) | Controlled WSL sshd setup |
 | [scripts/verify-session-clone.py](scripts/verify-session-clone.py) | Read-only JSONL session comparison |

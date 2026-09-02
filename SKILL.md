@@ -1,6 +1,6 @@
 ---
 name: codex-ssh-remote-skill
-description: Set up, diagnose, and repair Codex Desktop SSH Remote Connections between computers, especially Windows B to WSL/Linux A over Tailscale. Use when built-in Remote Control shows Couldn't enable remote control, SSH Connections fail or flap, app-server daemon state is stale, files open but chats are missing, or migrated Windows-to-WSL chats fail with AbsolutePathBuf, appear under Work or the wrong project, duplicate, or disappear. Covers OpenSSH, keys, ProxyJump, remote PATH/version/VPN, one-source-of-truth chat storage, Hand off limits, and safe session-store diagnosis; do not use for generic SSH or claim SSH creates a desktop mirror.
+description: Set up, diagnose, repair, and migrate Codex Desktop SSH Remote Connections across Windows, WSL, Linux, and macOS hosts over Tailscale or another trusted network. Use when built-in Remote Control fails, SSH Connections fail or flap, files open but chats are missing, a canonical Codex host must move, or migrated chats truncate, duplicate, disappear, show AbsolutePathBuf, or appear under Work/the wrong project. Covers OpenSSH, keys, remote PATH/version/VPN, one-source-of-truth chat storage, Hand off limits, safe host cutover, and session-store diagnosis; do not use for generic SSH or claim SSH creates a desktop mirror.
 ---
 
 # Codex SSH Remote Setup
@@ -116,6 +116,7 @@ Stop at the first failed gate:
 6. Codex Desktop B enables the SSH host and saves the intended remote project folder.
 7. A new test chat runs `pwd` and a harmless file read on A.
 8. A follow-up still works after several minutes and after reopening the project.
+9. For a host replacement, the old host remains enabled until the destination lists every expected task, a real resume succeeds there, and source history is verified as an exact prefix.
 
 Do not ask the user to keep restarting the desktop app while gates 1-5 fail.
 
@@ -148,6 +149,7 @@ The selected folder controls the remote workspace; it does not move old local ch
 - For **new work**, create the chat in the saved remote project. The task, commands, and files belong to A.
 - For an **existing Git-project task**, prefer the official Hand off flow and save the same repository/subdirectory on both hosts.
 - For a **projectless task**, Hand off may reject it. Read `references/chat-portability.md` before considering a manual migration.
+- For a **canonical-host replacement**, read `references/host-cutover.md` before copying project files or task state.
 - If Windows Codex on A and WSL Codex on A use different homes, expect `No chats` until the stores are intentionally reconciled. Connecting more project folders does not solve this.
 
 For a one-source-of-truth setup, enforce this invariant: the selected Codex home on A is the only active writer and canonical task store; B is only the Desktop UI and SSH client. Verify important tasks by task ID and host, not title. A refresh delay or stale client index is not proof that a task is missing from A.
@@ -193,6 +195,7 @@ Useful rules:
 - Read `references/windows-wsl-setup.md` for the full Windows B to WSL A setup and acceptance checklist.
 - Read `references/troubleshooting.md` for errors, proof commands, causes, and targeted fixes.
 - Read `references/chat-portability.md` for chat visibility, Hand off limits, one-source-of-truth design, and last-resort migration.
+- Read `references/host-cutover.md` when moving an entire CodexHub or replacing the always-on SSH host.
 - Run `scripts/diagnose-codex-ssh.ps1` on B for read-only SSH and Codex checks.
 - Run `scripts/setup-wsl-sshd.sh --help` before any server-side setup.
 - Run `scripts/verify-session-clone.py` only to compare two already-created JSONL session files; it never modifies them. Use `--allow-clone-tail` only when the destination was legitimately continued after migration.
